@@ -43,7 +43,6 @@ class DecisionTree:
             H += -(p_C * np.log2(p_C))
         return H
         
-
     @staticmethod
     def information_gain(X, y, feature_idx, thresh):
         if len(y) == 0:
@@ -58,8 +57,7 @@ class DecisionTree:
         
         parent_entropy = DecisionTree.entropy(y)
         after_entropy = ((len(y_left)*DecisionTree.entropy(y_left)) + 
-                         (len(y_right)*DecisionTree.entropy(y_right)) / (len(y_left) + len(y_right))
-                         
+                         (len(y_right)*DecisionTree.entropy(y_right)) / (len(y_left) + len(y_right))         
         return parent_entropy - after_entropy
 
     @staticmethod
@@ -80,18 +78,61 @@ class DecisionTree:
         is less than thresh, and (X_1, y_1) are the other examples.
         """
         left_mask = X[:, feature_idx] < thresh
-        right_mask = ~left_mask
-                         
+        right_mask = ~left_mask            
         return X[left_mask], y[left_mask], X[right_mask], y[right_mask]
   
-
-    def fit(self, X, y):
-        # TODO
-        pass
+    def best_split(self, X, y):
+        best_gain = -1
+        best_feature = None
+        best_thresh = None
+                         
+        for feature_idx in range(X.shape[1]):
+            thresholds = np.unique(X[:, feature_idx])
+            
+            for thresh in thresholds:
+                gain = self.information_gain(X, y, feature_idx, thresh)
+                if gain > best_gain:
+                   best_gain = gain
+                   best_feature = feature_idx
+                   best_thresh = thresh
+        return best_feature, best_thresh
+                
+    def fit(self, X, y, depth=0):
+        # Leaf
+        if depth == self.max_depth or len(np.unique(y)) == 1:
+           self.data = X
+           self.pred = np.argmax(np.bincount(y))
+           return
+        
+        self.split_idx, self.thresh = self.find_best_split(X, y)
+        
+        if self.split_idx is None:
+           self.data = X
+           self.pred = np.argmax(np.bincount(y))
+           return
+        
+        X_0, y_0, X_1, y_1 = self.split(X, y, self.split_idx, self.thresh)
+                         
+        self.left = DecisionTree(self.max_depth, self.features)
+        self.right = DecisionTree(self.max_depth, self.features)
+        
+        self.left.fit(X_0, y_0, depth+1)
+        self.right.fit(X_1, y_1, depth+1)
 
     def predict(self, X):
-        # TODO
-        pass
+        # Leaf
+        if self.pred is not None:
+           return np.array([self.pred] * X.shape[0])
+                         
+        left_mask = X[:, self.split_idx] < self.thresh
+        right_mask = ~left_mask
+        
+        y_pred = np.zeros(X.shape[0], dtype='int')
+        if self.left:
+           y_pred[left_mask] = self.left.predict(X[left_mask])
+        if self.right:
+           y_pred[right_mask] = self.right.predict(X[right_mask])
+        return y_pred
 
     def _to_graphviz(self, node_id):
         if self.max_depth == 0:

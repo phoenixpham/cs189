@@ -11,6 +11,7 @@ from scipy import stats
 from sklearn.tree import DecisionTreeClassifier, export_graphviz
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.model_selection import cross_val_score
+from sklearn.metrics import accuracy_score
 import pandas as pd
 from pydot import graph_from_dot_data
 import io
@@ -30,6 +31,7 @@ class DecisionTree:
         self.left, self.right = None, None  # for non-leaf nodes
         self.split_idx, self.thresh = None, None  # for non-leaf nodes
         self.data, self.pred = None, None  # for leaf nodes
+        self.labels = None
 
     @staticmethod
     def entropy(y):
@@ -40,7 +42,7 @@ class DecisionTree:
         for C in classes:
             class_examples = y[y == C]
             p_C = len(class_examples) / len(y)
-            H += -(p_C * np.log2(p_C))
+            H += -(p_C * np.log2(p_C + eps))
         return H
         
     @staticmethod
@@ -56,8 +58,7 @@ class DecisionTree:
             return 0
         
         parent_entropy = DecisionTree.entropy(y)
-        after_entropy = ((len(y_left)*DecisionTree.entropy(y_left)) + 
-                         (len(y_right)*DecisionTree.entropy(y_right)) / (len(y_left) + len(y_right))         
+        after_entropy = (len(y_left)*DecisionTree.entropy(y_left) + len(y_right)*DecisionTree.entropy(y_right)) / (len(y_left) + len(y_right))
         return parent_entropy - after_entropy
 
     @staticmethod
@@ -98,20 +99,23 @@ class DecisionTree:
         return best_feature, best_thresh
                 
     def fit(self, X, y, depth=0):
+        self.labels = y
         # Leaf
-        if depth == self.max_depth or len(np.unique(y)) == 1:
-           self.data = X
+        if depth >= self.max_depth or len(np.unique(y)) == 1:
            self.pred = np.argmax(np.bincount(y))
            return
         
-        self.split_idx, self.thresh = self.find_best_split(X, y)
+        self.split_idx, self.thresh = self.best_split(X, y)
         
         if self.split_idx is None:
-           self.data = X
            self.pred = np.argmax(np.bincount(y))
            return
         
         X_0, y_0, X_1, y_1 = self.split(X, y, self.split_idx, self.thresh)
+        
+        if len(y_0) == 0 or len(y_1) == 1:
+           self.pred = np.argmax(np.bincount(y))
+           return
                          
         self.left = DecisionTree(self.max_depth, self.features)
         self.right = DecisionTree(self.max_depth, self.features)
@@ -128,16 +132,31 @@ class DecisionTree:
         right_mask = ~left_mask
         
         y_pred = np.zeros(X.shape[0], dtype='int')
-        if self.left:
-           y_pred[left_mask] = self.left.predict(X[left_mask])
-        if self.right:
-           y_pred[right_mask] = self.right.predict(X[right_mask])
+        y_pred[left_mask] = self.left.predict(X[left_mask])
+        y_pred[right_mask] = self.right.predict(X[right_mask])
         return y_pred
-
+    
+    def score(self, X, y):
+        """Required for cross_val_score"""
+        y_pred = self.predict(X)
+        return np.mean(y_pred == y)
+    
+    def get_params(self, deep=True):
+        """Required for sklearn compatibility"""
+        return {'max_depth': self.max_depth, 'feature_labels': self.features}
+    
+    def set_params(self, **params):
+        """Required for sklearn compatibility"""
+        for param, value in params.items():
+            setattr(self, param, value)
+        return self
+    
     def _to_graphviz(self, node_id):
-        if self.max_depth == 0:
-            return f'{node_id} [label="Prediction: {self.pred}\nSamples: {self.labels.size}"];\n'
+        if self.pred is not None:  # Leaf node
+            return f'{node_id} [label="Prediction: {self.pred}\nSamples: {len(self.labels) if self.labels is not None else 0}"];\n'
         else:
+            if self.split_idx is None:
+                return f'{node_id} [label="No split found"];\n'
             graph = f'{node_id} [label="{self.features[self.split_idx]} < {self.thresh:.2f}"];\n'
             left_id = node_id * 2 + 1
             right_id = node_id * 2 + 2
@@ -156,12 +175,15 @@ class DecisionTree:
         return graph
         
     def __repr__(self):
-        if self.max_depth == 0:
-            return "%s (%s)" % (self.pred, self.labels.size)
+        if self.pred is not None:  # Check if leaf node
+            return "%s (%s)" % (self.pred, len(self.labels) if self.labels is not None else 0)
         else:
+            if self.split_idx is None:  # Handle case where no split was found
+                return "Leaf(%s)" % (self.pred if self.pred is not None else "?")
             return "[%s < %s: %s | %s]" % (self.features[self.split_idx],
-                                           self.thresh, self.left.__repr__(),
-                                           self.right.__repr__())
+                                          self.thresh, 
+                                          self.left.__repr__() if self.left else "?",
+                                          self.right.__repr__() if self.right else "?")
 
 
 class BaggedTrees(BaseEstimator, ClassifierMixin):
@@ -177,13 +199,19 @@ class BaggedTrees(BaseEstimator, ClassifierMixin):
         ]
 
     def fit(self, X, y):
-        # TODO
-        pass
+        for tree in self.decision_trees:
+            idx = np.random.choice(X.shape[0], size=X.shape[0], replace=True)
+            tree.fit(X[idx], y[idx])
 
     def predict(self, X):
-        # TODO
-        pass
-
+        votes = np.array([tree.predict(X) for tree in self.decision_trees])
+        return stats.mode(votes, axis=0)[0][0]
+    
+    def score(self, X, y):
+        y_pred = self.predict(X)
+        return np.mean(y_pred == y)
+    
+    
 
 class RandomForest(BaggedTrees):
 
@@ -232,14 +260,15 @@ def preprocess(data, fill_mode=True, min_freq=10, onehot_cols=[]):
     # the mean or median because this makes more sense for categorical
     # features such as gender or cabin type, which are not ordered.
     if fill_mode:
-        # TODO
-        pass
-
+        for i in range(data.shape[-1]):
+            mode = stats.mode(data[((data[:, i] < -1 - eps) +
+                                    (data[:, i] > -1 + eps))][:, i]).mode[0]
+            data[(data[:, i] > -1 - eps) * (data[:, i] < -1 + eps)][:, i] = mode
     return data, onehot_features
 
 
 def evaluate(clf):
-    print("Cross validation", cross_val_score(clf, X, y))
+    print("Cross validation", np.mean(cross_val_score(clf, X, y)))
     if hasattr(clf, "decision_trees"):
         counter = Counter([t.tree_.feature[0] for t in clf.decision_trees])
         first_splits = [
@@ -262,8 +291,8 @@ def generate_submission(testing_data, predictions, dataset="titanic"):
 
 
 if __name__ == "__main__":
-    dataset = "titanic"
-    # dataset = "spam"
+    #dataset = "titanic"
+    dataset = "spam"
     params = {
         "max_depth": 5,
         # "random_state": 6,
@@ -318,6 +347,10 @@ if __name__ == "__main__":
     print("\n\nDecision Tree")
     dt = DecisionTree(max_depth=3, feature_labels=features)
     dt.fit(X, y)
+    
+    dt_train_acc = dt.score(X, y)
+    cv_acc = np.mean(cross_val_score(dt, X, y, cv=5))
+    print(f"Training Accuracy: {dt_train_acc:.4f}, Validation Accuracy: {cv_acc:.4f}")
 
     # Visualize Decision Tree
     print("\n\nTree Structure")
@@ -331,6 +364,9 @@ if __name__ == "__main__":
     rf = RandomForest(params, n=N, m=np.int_(np.sqrt(X.shape[1])))
     rf.fit(X, y)
     evaluate(rf)
+    
+    rf_train_acc = rf.score(X, y)
+    print(f"Random Forest Training Accuracy: {rf_train_acc:.4f}")
 
     # Generate Test Predictions
     print("\n\nGenerate Test Predictions")

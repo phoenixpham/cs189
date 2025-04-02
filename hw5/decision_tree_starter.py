@@ -16,6 +16,8 @@ import pandas as pd
 from pydot import graph_from_dot_data
 import io
 
+from sklearn.model_selection import RandomizedSearchCV
+
 import random
 random.seed(246810)
 np.random.seed(246810)
@@ -62,14 +64,33 @@ class DecisionTree:
         return parent_entropy - after_entropy
 
     @staticmethod
-    def gini_impurity(X, y, thresh):
-        # OPTIONAL
-        pass
+    def gini_impurity(y):
+        if len(y) == 0:
+            return 0
+        
+        G = 0
+        classes = np.unique(y)
+        for C in classes:
+            class_examples = y[y == C]
+            p_C = len(class_examples) / len(y)
+            G += p_C ** 2
+        return 1 - G
 
     @staticmethod
-    def gini_purification(X, y, thresh):
-        # OPTIONAL
-        pass
+    def gini_purification(X, y, feature_idx, thresh):
+        if len(y) == 0:
+            return 0
+        
+        left_mask = X[:, feature_idx] < thresh
+        y_left = y[left_mask]
+        y_right = y[~left_mask]
+        
+        if len(y_left) == 0 or len(y_right) == 0:
+            return 0
+        
+        parent_gini = DecisionTree.gini_impurity(y)
+        after_gini = (len(y_left)*DecisionTree.gini_impurity(y_left) + len(y_right)*DecisionTree.gini_impurity(y_right)) / (len(y_left) + len(y_right))
+        return parent_gini - after_gini
 
     def split(self, X, y, feature_idx, thresh):
         """
@@ -90,32 +111,36 @@ class DecisionTree:
         for feature_idx in range(X.shape[1]):
             thresholds = np.unique(X[:, feature_idx])
             
+            if len(thresholds) <= 1:
+                continue
+            
             for thresh in thresholds:
-                gain = self.information_gain(X, y, feature_idx, thresh)
+                #gain = self.information_gain(X, y, feature_idx, thresh)
+                gain = self.gini_purification(X, y, feature_idx, thresh)
                 if gain > best_gain:
-                   best_gain = gain
-                   best_feature = feature_idx
-                   best_thresh = thresh
+                    best_gain = gain
+                    best_feature = feature_idx
+                    best_thresh = thresh
         return best_feature, best_thresh
                 
     def fit(self, X, y, depth=0):
         self.labels = y
         # Leaf
         if depth >= self.max_depth or len(np.unique(y)) == 1:
-           self.pred = np.argmax(np.bincount(y))
-           return
+            self.pred = np.argmax(np.bincount(y))
+            return
         
         self.split_idx, self.thresh = self.best_split(X, y)
         
         if self.split_idx is None:
-           self.pred = np.argmax(np.bincount(y))
-           return
+            self.pred = np.argmax(np.bincount(y))
+            return
         
         X_0, y_0, X_1, y_1 = self.split(X, y, self.split_idx, self.thresh)
         
-        if len(y_0) == 0 or len(y_1) == 1:
-           self.pred = np.argmax(np.bincount(y))
-           return
+        if len(y_0) == 0 or len(y_1) == 0:
+            self.pred = np.argmax(np.bincount(y))
+            return
                          
         self.left = DecisionTree(self.max_depth, self.features)
         self.right = DecisionTree(self.max_depth, self.features)
@@ -124,9 +149,8 @@ class DecisionTree:
         self.right.fit(X_1, y_1, depth+1)
 
     def predict(self, X):
-        # Leaf
-        if self.pred is not None:
-           return np.array([self.pred] * X.shape[0])
+        if self.pred is not None: # leaf
+            return np.array([self.pred] * X.shape[0])
                          
         left_mask = X[:, self.split_idx] < self.thresh
         right_mask = ~left_mask
@@ -137,16 +161,13 @@ class DecisionTree:
         return y_pred
     
     def score(self, X, y):
-        """Required for cross_val_score"""
         y_pred = self.predict(X)
         return np.mean(y_pred == y)
     
     def get_params(self, deep=True):
-        """Required for sklearn compatibility"""
         return {'max_depth': self.max_depth, 'feature_labels': self.features}
     
     def set_params(self, **params):
-        """Required for sklearn compatibility"""
         for param, value in params.items():
             setattr(self, param, value)
         return self
@@ -211,28 +232,32 @@ class BaggedTrees(BaseEstimator, ClassifierMixin):
         y_pred = self.predict(X)
         return np.mean(y_pred == y)
     
-    
 
 class RandomForest(BaggedTrees):
-
     def __init__(self, params=None, n=200, m=1):
         if params is None:
             params = {}
         params['max_features'] = m
         self.m = m
         super().__init__(params=params, n=n)
+        
+    def get_params(self, deep=True):
+        return {'params': self.params, 'n': self.n, 'm': self.m}
+    
+    def set_params(self, **params):
+        for param, value in params.items():
+            setattr(self, param, value)
+        return self
 
 
-class BoostedRandomForest(RandomForest):
-    # OPTIONAL
+class BoostedRandomForest(RandomForest): 
     def fit(self, X, y):
         # OPTIONAL
         pass
-    
+                
     def predict(self, X):
         # OPTIONAL
         pass
-
 
 def preprocess(data, fill_mode=True, min_freq=10, onehot_cols=[]):
     # Temporarily assign -1 to missing data
@@ -261,8 +286,7 @@ def preprocess(data, fill_mode=True, min_freq=10, onehot_cols=[]):
     # features such as gender or cabin type, which are not ordered.
     if fill_mode:
         for i in range(data.shape[-1]):
-            mode = stats.mode(data[((data[:, i] < -1 - eps) +
-                                    (data[:, i] > -1 + eps))][:, i]).mode[0]
+            mode = stats.mode(data[((data[:, i] < -1 - eps) + (data[:, i] > -1 + eps))][:, i]).mode[0]
             data[(data[:, i] > -1 - eps) * (data[:, i] < -1 + eps)][:, i] = mode
     return data, onehot_features
 
@@ -291,8 +315,8 @@ def generate_submission(testing_data, predictions, dataset="titanic"):
 
 
 if __name__ == "__main__":
-    #dataset = "titanic"
-    dataset = "spam"
+    dataset = "titanic"
+    #dataset = "spam"
     params = {
         "max_depth": 5,
         # "random_state": 6,
@@ -345,7 +369,7 @@ if __name__ == "__main__":
 
     # Decision Tree
     print("\n\nDecision Tree")
-    dt = DecisionTree(max_depth=3, feature_labels=features)
+    dt = DecisionTree(max_depth=5, feature_labels=features)
     dt.fit(X, y)
     
     dt_train_acc = dt.score(X, y)
@@ -367,8 +391,25 @@ if __name__ == "__main__":
     
     rf_train_acc = rf.score(X, y)
     print(f"Random Forest Training Accuracy: {rf_train_acc:.4f}")
-
+    
+    param_dist = {
+        'max_depth': [3, 5, 7, 10, 15, 20, 25, None],
+        'min_samples_leaf': [1, 2, 5, 10, 20],
+        'm': ['sqrt', 'log2', 0.3, 0.5, 0.7],  # max_features
+        'n': [50, 100, 200, 300]
+    }
+    random_search = RandomizedSearchCV(rf, param_distributions=param_dist, n_iter=20, cv=5, scoring='accuracy', random_state=246810)
+    random_search.fit(X, y)
+    print("Best Parameters:", random_search.best_params_)
+    print("Best Validation score:", random_search.best_score_)
+    
+    best_rf = random_search.best_estimator_
+    best_rf.fit(X, y)
+    
+    train_acc = best_rf.score(X, y)
+    print(f"Randomized Search Random Forest Training Accuracy: {train_acc:.4f}")
+    
     # Generate Test Predictions
     print("\n\nGenerate Test Predictions")
-    pred = rf.predict(Z)
+    pred = best_rf.predict(Z)
     generate_submission(Z, pred, dataset)

@@ -159,9 +159,13 @@ class FullyConnected(Layer):
         ### BEGIN YOUR CODE ###
         
         # perform an affine transformation and activation
-        out = ...
+        Z = X @ self.parameters["W"] + self.parameters["b"]
+        
+        out = self.activation.forward(Z)
         
         # store information necessary for backprop in `self.cache`
+        self.cache = {"X": X.copy(), "Z": Z.copy(), "out": out.copy()}
+        
 
         ### END YOUR CODE ###
 

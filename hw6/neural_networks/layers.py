@@ -191,15 +191,21 @@ class FullyConnected(Layer):
         ### BEGIN YOUR CODE ###
         
         # unpack the cache
+        X = self.cache["X"]
+        Z = self.cache["Z"]
         
         # compute the gradients of the loss w.r.t. all parameters as well as the
         # input of the layer
-
-        dX = ...
+        dLdZ = self.activation.backward(Z, dLdY)
+        dW = X.T @ dLdZ
+        db = np.sum(dLdZ, axis=0, keepdims=True)
+        dX = dLdZ @ self.parameters["W"].T
 
         # store the gradients in `self.gradients`
         # the gradient for self.parameters["W"] should be stored in
         # self.gradients["W"], etc.
+        self.gradients["W"] = dW
+        self.gradients["b"] = db
 
         ### END YOUR CODE ###
 

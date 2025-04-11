@@ -129,12 +129,12 @@ class FullyConnected(Layer):
 
         ### BEGIN YOUR CODE ###
 
-        W = self.init_weights(...)
-        b = ...
+        W = self.init_weights((self.n_in, self.n_out))
+        b = np.zeros((1, self.n_out))
 
         self.parameters = OrderedDict({"W": W, "b": b}) # DO NOT CHANGE THE KEYS
-        self.cache: OrderedDict = ...  # cache for backprop
-        self.gradients: OrderedDict = ...  # parameter gradients initialized to zero
+        self.cache = OrderedDict({"X": None, "Z": None})  # cache for backprop
+        self.gradients = OrderedDict({"W": np.zeros_like(W), "b": np.zeros_like(b)})  # parameter gradients initialized to zero
                                            # MUST HAVE THE SAME KEYS AS `self.parameters`
 
         ### END YOUR CODE ###
@@ -164,7 +164,8 @@ class FullyConnected(Layer):
         out = self.activation.forward(Z)
         
         # store information necessary for backprop in `self.cache`
-        self.cache = {"X": X.copy(), "Z": Z.copy(), "out": out.copy()}
+        self.cache["X"] = X.copy()
+        self.cache["Z"] = Z.copy()
         
 
         ### END YOUR CODE ###

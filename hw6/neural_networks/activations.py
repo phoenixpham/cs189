@@ -195,7 +195,9 @@ class SoftMax(Activation):
         f(z) as described above applied elementwise to `Z`
         """
         ### YOUR CODE HERE ###
-        return ...
+        m = np.max(Z, axis=1, keepdims=True)
+        exp_z = np.exp(Z - max_z)
+        return exp_z / np.sum(exp_z, axis=1, keepdims=True)
 
     def backward(self, Z: np.ndarray, dY: np.ndarray) -> np.ndarray:
         """Backward pass for softmax activation.
@@ -211,7 +213,17 @@ class SoftMax(Activation):
         gradient of loss w.r.t. input of this layer
         """
         ### YOUR CODE HERE ###
-        return ...
+        s = self.forward(Z)
+        
+        batch_size = Z.shape[0]
+        num_classes = Z.shape[1]
+        dZ = np.zeros_like(Z)
+        
+        for i in range(batch_size):
+            s_i = s[i].reshape(-1, 1) # make column vector
+            J = np.diagflat(s_i) - np.outer(s_i, s_i)
+            dZ[i] = dY[i] @ J
+        return dZ
 
 
 class ArcTan(Activation):

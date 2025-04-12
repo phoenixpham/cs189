@@ -232,6 +232,7 @@ class BatchNorm1D(Layer):
 
         self.eps = eps
         self.momentum = momentum
+        
 
     def _init_parameters(self, X_shape: Tuple[int, int]) -> None:
         """Initialize all layer parameters (weights, biases)."""
@@ -239,17 +240,20 @@ class BatchNorm1D(Layer):
 
         ### BEGIN YOUR CODE ###
 
-        gamma = self.init_weights(...)
-        beta = ...
+        gamma = np.ones((1, self.n_in))
+        beta = np.zeros((1, self.n_in))
+        
+        running_mu = np.zeros((1, self.n_in))
+        running_var = np.ones((1, self.n_in))
 
         self.parameters = OrderedDict({"gamma": gamma, "beta": beta}) # DO NOT CHANGE THE KEYS
-        self.cache = OrderedDict({"X": ..., "X_hat": ..., 
-                                  "mu": ..., "var": ..., 
-                                  "running_mu": ..., "running_var": ...})  
+        self.cache = OrderedDict({"X": None, "X_hat": None, 
+                                  "mu": None, "var": None, 
+                                  "running_mu": running_mu, "running_var": running_var})  
         # cache for backprop
-        self.gradients: OrderedDict = ...  # parameter gradients initialized to zero
+        self.gradients = OrderedDict({"gamma": np.zeros_like(gamma), "beta": np.zeros_like(beta)}) # parameter gradients initialized to zero
                                            # MUST HAVE THE SAME KEYS AS `self.parameters`
-
+   
         ### END YOUR CODE ###
 
     def forward(self, X: np.ndarray) -> np.ndarray:
@@ -263,10 +267,31 @@ class BatchNorm1D(Layer):
         You should also not 
         """
         ### BEGIN YOUR CODE ###
+        # initialize layer parameters if they have not been initialized
+        if self.n_in is None:
+            self._init_parameters(X.shape)
 
         # implement a batch norm forward pass
+        if self.mode == "train":
+            # batch statistics
+            mu = np.mean(X, axis=0, keepdims=True) 
+            var = np.var(X, axis=0, keepdims=True)
+            
+            X_hat = (X - mu) / np.sqrt(var + self.eps) # normalize
+            out = self.parameters["gamma"]*X_hat + self.parameters["beta"]
 
-        # cache any values required for backprop
+            # cache any values required for backprop
+            if np.all(self.cache["running_mu"] == 0): # first batch
+                self.cache["running_mu"] = mu
+                self.cache["running_var"] = var
+            else:
+                self.cache["running_mu"] = self.momentum*mu + (1 - self.momentum)*self.cache["running_mu"]
+                self.cache["running_var"] = self.momentum*var + (1 - self.momentum)*self.cache["running_var"]
+                
+            self.cache.update({"X": X, "X_hat": X_hat, "mu": mu, "var": var})
+        else:
+            X_hat = (X - self.cache["running_mu"]) / np.sqrt(self.cache["running_var"] + self.eps)
+            out = self.parameters["gamma"]*X_hat + self.parameters["beta"]
 
         ### END YOUR CODE ###
         return out
@@ -278,12 +303,24 @@ class BatchNorm1D(Layer):
         """
 
         ### BEGIN YOUR CODE ###
-
-        # implement backward pass for batchnorm.
+        X = self.cache["X"]
+        X_hat = self.cache["X_hat"]
+        mu = self.cache["mu"]
+        var = self.cache["var"]
+        gamma = self.parameters["gamma"]
+        B = X.shape[0]
+        
+        self.gradients["beta"] = np.sum(dY, axis=0, keepdims=True)
+        self.gradients["gamma"] = np.sum(dY * X_hat, axis=0, keepdims=True)
+        
+        dX_hat = dY * gamma
+        dvar = np.sum(dX_hat * ((X - mu) * -0.5 * (var + self.eps)**(-1.5)), axis=0, keepdims=True)
+        dmu = np.sum(dX_hat * (-1 / np.sqrt(var + self.eps)) + dvar * np.mean(-2 * (X - mu)), axis=0, keepdims=True)
+        
+        dX = (dX_hat / np.sqrt(var + self.eps)) + (dmu / B) + (dvar * 2*(X - mu) / B)
 
         ### END YOUR CODE ###
         
-
         return dX
 
 class Conv2D(Layer):

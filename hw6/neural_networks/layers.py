@@ -314,10 +314,11 @@ class BatchNorm1D(Layer):
         self.gradients["gamma"] = np.sum(dY * X_hat, axis=0, keepdims=True)
         
         dX_hat = dY * gamma
+        std_inv = 1 / np.sqrt(var + self.eps)
         dvar = np.sum(dX_hat * ((X - mu) * -0.5 * (var + self.eps)**(-1.5)), axis=0, keepdims=True)
-        dmu = np.sum(dX_hat * (-1 / np.sqrt(var + self.eps)) + dvar * np.mean(-2 * (X - mu)), axis=0, keepdims=True)
+        dmu = np.sum(dX_hat * -std_inv, axis=0, keepdims=True) + dvar * np.mean(-2 * (X - mu), axis=0, keepdims=True)
         
-        dX = (dX_hat / np.sqrt(var + self.eps)) + (dmu / B) + (dvar * 2*(X - mu) / B)
+        dX = (dX_hat * std_inv) + (dmu / B) + (dvar * 2*(X - mu) / B)
 
         ### END YOUR CODE ###
         

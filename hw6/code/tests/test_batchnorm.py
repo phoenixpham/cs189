@@ -10,6 +10,7 @@ class TestBatchNorm1D(LayerTest):
     layer_config = {
         "momentum": 0.95,
         "eps": 1e-8,
+        "n_in": None,
     }
     num_iters = 10
 
@@ -22,7 +23,7 @@ class TestBatchNorm1D(LayerTest):
             # this is for running tests in forward module in training mode
             for i in range(self.num_iters):
                 input_data = self.test_data[str(i) + "input"]
-                out = layer.forward(input_data)
+                out = layer.forward(input_data, mode="train")
                 running_mean = layer.cache["running_mu"]
                 running_var = layer.cache["running_var"]
                 ref_running_mean = self.test_data[str(i) + "running_mu"]
@@ -31,11 +32,10 @@ class TestBatchNorm1D(LayerTest):
                 assert_almost_equal(running_var, ref_running_var, decimal=4)
 
             # inference in test mode
-            mode = "test"
             layer.parameters["gamma"] = self.test_data["gamma"]
             layer.parameters["beta"] = self.test_data["beta"]
 
-            out = layer.forward(self.test_data["inference_inputs"], mode=mode)
+            out = layer.forward(self.test_data["inference_inputs"], mode="test")
             assert_almost_equal(out, self.test_data["inference_output"], decimal=4)
         elif mode == "backward":
             layer.parameters["gamma"] = self.test_data["gamma"]

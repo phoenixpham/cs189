@@ -51,7 +51,6 @@ class CrossEntropy(Loss):
         """
         ### YOUR CODE HERE ###
         B = Y.shape[0]
-        Y_hat = np.clip(Y_hat, 1e-15, 1 - 1e-15) # for numerical stability
         return - np.sum(Y * np.log(Y_hat)) / B
 
     def backward(self, Y: np.ndarray, Y_hat: np.ndarray) -> np.ndarray:
@@ -70,4 +69,4 @@ class CrossEntropy(Loss):
         """
         ### YOUR CODE HERE ###
         B = Y.shape[0]
-        return (Y - Y_hat) / B # gradient for SoftMax + cross-entropy
+        return -Y / (Y_hat * B)

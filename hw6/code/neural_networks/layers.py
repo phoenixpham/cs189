@@ -217,7 +217,6 @@ class BatchNorm1D(Layer):
     def __init__(
         self, 
         n_in: int,
-        mode: str = "train",
         weight_init: str = "xavier_uniform",
         eps: float = 1e-8,
         momentum: float = 0.9,
@@ -225,7 +224,6 @@ class BatchNorm1D(Layer):
         super().__init__()
 
         self.n_in = n_in
-        self.mode = mode
         
         # instantiate the weight initializer
         self.init_weights = initialize_weights(weight_init,)
@@ -244,7 +242,7 @@ class BatchNorm1D(Layer):
         beta = np.zeros((1, self.n_in))
         
         running_mu = np.zeros((1, self.n_in))
-        running_var = np.ones((1, self.n_in))
+        running_var = np.zeros((1, self.n_in))
 
         self.parameters = OrderedDict({"gamma": gamma, "beta": beta}) # DO NOT CHANGE THE KEYS
         self.cache = OrderedDict({"X": None, "X_hat": None, 
@@ -256,7 +254,7 @@ class BatchNorm1D(Layer):
    
         ### END YOUR CODE ###
 
-    def forward(self, X: np.ndarray) -> np.ndarray:
+    def forward(self, X: np.ndarray, mode: str="train") -> np.ndarray:
         """ Forward pass for 1D batch normalization layer.
         Allows taking in an array of shape (B, C) and performs batch normalization over it. Bill's sidenote: I think we can 
         make it to include cases of it being (B, C, L), but is it really necessary?
@@ -272,27 +270,21 @@ class BatchNorm1D(Layer):
             self._init_parameters(X.shape)
 
         # implement a batch norm forward pass
-        if self.mode == "train":
+        if mode == "train":
             # batch statistics
             mu = np.mean(X, axis=0, keepdims=True) 
             var = np.var(X, axis=0, keepdims=True)
             
             X_hat = (X - mu) / np.sqrt(var + self.eps) # normalize
-            out = self.parameters["gamma"]*X_hat + self.parameters["beta"]
 
             # cache any values required for backprop
-            if np.all(self.cache["running_mu"] == 0): # first batch
-                self.cache["running_mu"] = mu
-                self.cache["running_var"] = var
-            else:
-                self.cache["running_mu"] = self.momentum*mu + (1 - self.momentum)*self.cache["running_mu"]
-                self.cache["running_var"] = self.momentum*var + (1 - self.momentum)*self.cache["running_var"]
-                
+            self.cache["running_mu"] = self.momentum*self.cache["running_mu"]+ (1 - self.momentum)*mu
+            self.cache["running_var"] = self.momentum*self.cache["running_var"] + (1 - self.momentum)*var
             self.cache.update({"X": X, "X_hat": X_hat, "mu": mu, "var": var})
         else:
             X_hat = (X - self.cache["running_mu"]) / np.sqrt(self.cache["running_var"] + self.eps)
-            out = self.parameters["gamma"]*X_hat + self.parameters["beta"]
 
+        out = self.parameters["gamma"]*X_hat + self.parameters["beta"]
         ### END YOUR CODE ###
         return out
 
@@ -310,8 +302,8 @@ class BatchNorm1D(Layer):
         gamma = self.parameters["gamma"]
         B = X.shape[0]
         
-        self.gradients["beta"] = np.sum(dY, axis=0, keepdims=True)
-        self.gradients["gamma"] = np.sum(dY * X_hat, axis=0, keepdims=True)
+        self.gradients["beta"] = np.sum(dY, axis=0, keepdims=True).squeeze()
+        self.gradients["gamma"] = np.sum(dY * X_hat, axis=0, keepdims=True).squeeze()
         
         dX_hat = dY * gamma
         std_inv = 1 / np.sqrt(var + self.eps)

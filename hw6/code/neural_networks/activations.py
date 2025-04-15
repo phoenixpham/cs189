@@ -89,7 +89,7 @@ class Sigmoid(Activation):
         f(z) as described above applied elementwise to `Z`
         """
         ### YOUR CODE HERE ###
-        return ...
+        return 1 / (1 + np.exp(-Z))
 
     def backward(self, Z: np.ndarray, dY: np.ndarray) -> np.ndarray:
         """Backward pass for sigmoid.
@@ -105,7 +105,7 @@ class Sigmoid(Activation):
         gradient of loss w.r.t. input of this layer
         """
         ### YOUR CODE HERE ###
-        return ...
+        return dY * self.forward(Z) * (1 - self.forward(Z))
 
 
 class TanH(Activation):
@@ -196,7 +196,7 @@ class SoftMax(Activation):
         """
         ### YOUR CODE HERE ###
         m = np.max(Z, axis=1, keepdims=True)
-        exp_z = np.exp(Z - max_z)
+        exp_z = np.exp(Z - m)
         return exp_z / np.sum(exp_z, axis=1, keepdims=True)
 
     def backward(self, Z: np.ndarray, dY: np.ndarray) -> np.ndarray:
@@ -216,7 +216,6 @@ class SoftMax(Activation):
         s = self.forward(Z)
         
         batch_size = Z.shape[0]
-        num_classes = Z.shape[1]
         dZ = np.zeros_like(Z)
         
         for i in range(batch_size):

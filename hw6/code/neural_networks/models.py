@@ -124,14 +124,14 @@ class NeuralNetwork(ABC):
         """
         ### YOUR CODE HERE ###
         # Compute the loss.
-        loss = self.loss.forward(target, out)
+        L = self.loss.forward(target, out)
         dLdY = self.loss.backward(target, out)
 
         # Backpropagate through the network's layers.
         for layer in reversed(self.layers):
             dLdY = layer.backward(dLdY)
 
-        return loss
+        return L
 
     def update(self, epoch: int) -> None:
         """One step of gradient update using the derivatives calculated by
@@ -306,7 +306,7 @@ class NeuralNetwork(ABC):
         # Do a forward pass. Maybe use a function you already wrote?
         Y_hat = self.forward(X)
         # Get the loss. Remember that the `backward` function returns the loss.
-        loss = self.backward(Y, Y_hat)
-        
-        return Y_hat, loss
+        L = self.backward(Y, Y_hat)
+
+        return Y_hat, L
 

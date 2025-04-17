@@ -90,13 +90,14 @@ np.random.seed(model_args.seed)
 Step 5: Define model name for saving
 """
 
-model_name = "{}_{}layers_{}-lr{}_mom{}_seed{}".format(
+model_name = "{}_{}layers_{}-lr{}_mom{}_bs{}_seed{}".format(
     model_args.name,
     len(layer_args),
-    fc1["n_out"],
+    fc1.n_out,
     optimizer_args.lr,
     optimizer_args.momentum,
-    model_args.seed,
+    data_args.batch_size,
+    model_args.seed
 )
 
 """
@@ -153,3 +154,5 @@ print(optimizer_args)
 
 model.train(dataset, epochs=epochs)
 model.test(dataset)
+
+print(f"Hidden units: {fc1.n_out}, Learning rate: {optimizer_args.lr}")

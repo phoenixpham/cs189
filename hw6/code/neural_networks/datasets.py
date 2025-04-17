@@ -18,13 +18,22 @@ def initialize_dataset(
 ):
     if name == "iris":
         training_set = np.load('datasets/iris/iris_train_data.npy')
-        training_labels = np.load('datasets/iris/iris_train_labels.npy')
+        training_labels = np.load('datasets/iris/iris_train_labels.npy').astype(int)
 
         validation_set = np.load('datasets/iris/iris_val_data.npy')
-        validation_labels = np.load('datasets/iris/iris_val_labels.npy')
+        validation_labels = np.load('datasets/iris/iris_val_labels.npy').astype(int)
 
         test_set = np.load('datasets/iris/iris_test_data.npy')
-        test_labels = np.load('datasets/iris/iris_test_labels.npy')
+        test_labels = np.load('datasets/iris/iris_test_labels.npy').astype(int)
+
+        # Standardize features and OHE labels
+        training_set = standardize(training_set)
+        validation_set = standardize(validation_set)
+        test_set = standardize(test_set)
+
+        training_labels = integers_to_one_hot(training_labels, 2)
+        validation_labels = integers_to_one_hot(validation_labels, 2)
+        test_labels = integers_to_one_hot(test_labels, 2)
 
         dataset = Dataset(
             training_set=training_set,

@@ -164,8 +164,8 @@ class FullyConnected(Layer):
         out = self.activation.forward(Z)
         
         # store information necessary for backprop in `self.cache`
-        self.cache["X"] = X.copy()
-        self.cache["Z"] = Z.copy()
+        self.cache["X"] = X
+        self.cache["Z"] = Z
         
 
         ### END YOUR CODE ###
@@ -389,8 +389,22 @@ class Conv2D(Layer):
         ### BEGIN YOUR CODE ###
 
         # implement a convolutional forward pass
+        X_pad = np.pad(X, ((0, 0), (self.pad[0], self.pad[0]), (self.pad[1], self.pad[1]), (0, 0)), mode="constant") # padding for input
 
+        out_rows = ((in_rows + 2*self.pad[0] - kernel_shape[0]) // self.stride) + 1
+        out_cols = ((in_cols + 2*self.pad[1] - kernel_shape[1]) // self.stride) + 1
+
+        Z = np.zeros((n_examples, out_rows, out_cols, out_channels))
+
+        for i in range(out_rows):
+            for j in range(out_cols):
+                X_slice = X_pad[:, (i*self.stride):(i*self.stride + kernel_shape[0]), (j*self.stride):(j*self.stride + kernel_shape[1]), :]
+                Z[:, i, j, :] = np.einsum("bhwc,hwcf->bf", X_slice, W) + b
+
+        out = self.activation.forward(Z)
         # cache any values required for backprop
+        self.cache["X"] = X
+        self.cache["Z"] = Z
 
         ### END YOUR CODE ###
 

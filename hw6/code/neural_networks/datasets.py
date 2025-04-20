@@ -26,15 +26,6 @@ def initialize_dataset(
         test_set = np.load('datasets/iris/iris_test_data.npy')
         test_labels = np.load('datasets/iris/iris_test_labels.npy').astype(int)
 
-        # Standardize features and OHE labels
-        training_set = standardize(training_set)
-        validation_set = standardize(validation_set)
-        test_set = standardize(test_set)
-
-        training_labels = integers_to_one_hot(training_labels, 2)
-        validation_labels = integers_to_one_hot(validation_labels, 2)
-        test_labels = integers_to_one_hot(test_labels, 2)
-
         dataset = Dataset(
             training_set=training_set,
             training_labels=training_labels,

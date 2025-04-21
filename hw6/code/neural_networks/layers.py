@@ -382,9 +382,9 @@ class Conv2D(Layer):
         W = self.parameters["W"]
         b = self.parameters["b"]
 
-        kernel_height, kernel_width, in_channels, out_channels = W.shape
-        n_examples, in_rows, in_cols, in_channels = X.shape
-        kernel_shape = (kernel_height, kernel_width)
+        k1, k2, in_channels, out_channels = W.shape
+        batch_size, in_rows, in_cols, in_channels = X.shape
+        kernel_shape = (k1, k2)
 
         ### BEGIN YOUR CODE ###
 
@@ -394,7 +394,7 @@ class Conv2D(Layer):
         out_rows = ((in_rows + 2*self.pad[0] - kernel_shape[0]) // self.stride) + 1
         out_cols = ((in_cols + 2*self.pad[1] - kernel_shape[1]) // self.stride) + 1
 
-        Z = np.zeros((n_examples, out_rows, out_cols, out_channels))
+        Z = np.zeros((batch_size, out_rows, out_cols, out_channels))
 
         for i in range(out_rows):
             for j in range(out_cols):
@@ -426,24 +426,23 @@ class Conv2D(Layer):
         shape (batch_size, in_rows, in_cols, in_channels)
         """
         ### BEGIN YOUR CODE ###
-        X = self.cache["X"] # input (batch_size, d1, d2, n_in)
-        Z = self.cache["Z"] # pre-activation (batch_size, r1, r2, n_out)
-        W = self.parameters["W"] # weights (k1, k2, n_in, n_out)
+        X = self.cache["X"] # input (batch_size, in_rows, in_cols, in_channels)
+        Z = self.cache["Z"] # pre-activation (batch_size, out_rows, out_cols, out_channels)
+        W = self.parameters["W"] # weights (k1, k2, in_channels, out_channels)
 
-        batch_size, d1, d2, n_in = X.shape
-        k1, k2, n_in, n_out = W.shape
-        r1, r2 = dLdY.shape[1], dLdY.shape[2]
-        
         dZ = self.activation.backward(Z, dLdY) # gradient before activation (batch_size, r1, r2, n_out)
 
+        batch_size, in_rows, in_cols, in_channels = X.shape
+        k1, k2, in_channels, out_channels = W.shape
+        out_rows, out_cols = dZ.shape[1], dZ.shape[2]
+        
         # bias gradient
-        db = np.einsum('bhwn->n', dZ).reshape(1, n_out)
+        db = np.einsum('bhwn->n', dZ).reshape(1, out_channels)
 
         # weight gradient
         X_pad = np.pad(X, ((0, 0), (self.pad[0], self.pad[0]), (self.pad[1], self.pad[1]), (0, 0)), mode="constant") # padding for input
-        X_windows = np.lib.stride_tricks.as_strided(
-            X_pad,
-            shape=(batch_size, r1, r2, k1, k2, n_in),
+        X_windows = np.lib.stride_tricks.as_strided(X_pad,
+            shape=(batch_size, out_rows, out_cols, k1, k2, in_channels),
             strides=(X_pad.strides[0], 
                     X_pad.strides[1] * self.stride,
                     X_pad.strides[2] * self.stride,
@@ -455,8 +454,8 @@ class Conv2D(Layer):
         
         # input gradient
         dX_pad = np.zeros_like(X_pad)
-        for i in range(r1):
-            for j in range(r2):
+        for i in range(out_rows):
+            for j in range(out_cols):
                 for b in range(batch_size):
                     dX_pad[b, i*self.stride:(i*self.stride + k1), j*self.stride:(j*self.stride + k2), :] += (dZ[b, i, j, :]*W).sum(axis=3)
         
@@ -543,7 +542,12 @@ class Pool2D(Layer):
         
         X_windows = np.lib.stride_tricks.as_strided(X_pad,
             shape=(batch_size, out_rows, out_cols, k1, k2, channels),
-            strides=(X_pad.strides[0], X_pad.strides[1] * self.stride, X_pad.strides[2] * self.stride, X_pad.strides[1], X_pad.strides[2],X_pad.strides[3])
+            strides=(X_pad.strides[0], 
+                     X_pad.strides[1] * self.stride, 
+                     X_pad.strides[2] * self.stride, 
+                     X_pad.strides[1], 
+                     X_pad.strides[2],
+                     X_pad.strides[3])
         )
 
         # implement the forward pass

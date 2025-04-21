@@ -426,8 +426,43 @@ class Conv2D(Layer):
         shape (batch_size, in_rows, in_cols, in_channels)
         """
         ### BEGIN YOUR CODE ###
+        X = self.cache["X"] # input (batch_size, d1, d2, n_in)
+        Z = self.cache["Z"] # pre-activation (batch_size, r1, r2, n_out)
+        W = self.parameters["W"] # weights (k1, k2, n_in, n_out)
 
-        # perform a backward pass
+        dZ = self.activation.backward(Z, dLdY) # gradient before activation (batch_size, r1, r2, n_out)
+
+        X_pad = np.pad(X, ((0, 0), (self.pad[0], self.pad[0]), (self.pad[1], self.pad[1]), (0, 0)), mode="constant") # padding for input
+
+        batch_size, d1_pad, d2_pad, n_in = X_pad.shape
+        k1, k2, _, n_out = W.shape
+        r1, r2 = dZ.shape[1], dZ.shape[2]
+
+        db = np.einsum('bhwn->n', dZ).reshape(1, n_out)
+
+        # Gradient for weights
+        dW = np.zeros_like(W)
+        for i in range(k1):
+            for j in range(k2):
+                # Extract patches where weight W[i,j] was used
+                X_patch = X_pad[:, i:i+r1*self.stride:self.stride, 
+                                j:j+r2*self.stride:self.stride, :]  # (batch_size, r1, r2, n_in)
+                dW[i,j] = np.einsum('bhwn,bhwc->cn', dZ, X_patch)  # sum over batch and spatial
+        
+        dX_pad = np.zeros_like(X_pad)
+        dZ_pad = np.pad(dZ, ((0,0), (k1-1, k1-1), (k2-1, k2-1), (0,0)), mode="constant")
+        
+        for i in range(k1):
+            for j in range(k2):
+                dZ_window = dZ_pad[:, i:i+d1_pad, j:j+d2_pad, :]  # (batch_size, d1_pad, d2_pad, n_out)
+                dX_pad += np.einsum('bhwn,cn->bhwc', dZ_window, W[i,j])
+        
+        # Remove padding
+        dX = dX_pad[:, self.pad[0]:d1_pad-self.pad[0], 
+                    self.pad[1]:d2_pad-self.pad[1], :]
+        
+        self.gradients["W"] = dW
+        self.gradients["b"] = db
 
         ### END YOUR CODE ###
 
@@ -495,13 +530,35 @@ class Pool2D(Layer):
         """
         ### BEGIN YOUR CODE ###
 
-        # implement the forward pass
+        batch_size, in_rows, in_cols, channels = X.shape
+        k1, k2 = self.kernel_shape
+        
+        # output dimensions
+        out_rows = (in_rows - k1 + 2 * self.pad[0]) // self.stride + 1
+        out_cols = (in_cols - k2 + 2 * self.pad[1]) // self.stride + 1
+        
+        X_pad = np.pad(X, ((0, 0), (self.pad[0], self.pad[0]), (self.pad[1], self.pad[0]), (0, 0)), mode='constant')
+        
+        X_strided = np.lib.stride_tricks.as_strided(X_pad,
+            shape=(batch_size, out_rows, out_cols, k1, k2, channels),
+            strides=(X_pad.strides[0], X_pad.strides[1] * self.stride, X_pad.strides[2] * self.stride, X_pad.strides[1], X_pad.strides[2],X_pad.strides[3])
+        )
 
+        # implement the forward pass
+        X_pool = self.pool_fn(X_strided, axis=(3, 4))
+        
         # cache any values required for backprop
+        self.cache["out_rows"] = out_rows
+        self.cache["out_cols"] = out_cols
+        self.cache["X_pad"] = X_pad
+        self.cache["X_strided"] = X_strided
+        self.cache["p"] = self.stride
+        self.cache["pool_shape"] = X_pad.shape
 
         ### END YOUR CODE ###
 
         return X_pool
+
 
     def backward(self, dLdY: np.ndarray) -> np.ndarray:
         """Backward pass for pooling layer.
@@ -517,8 +574,51 @@ class Pool2D(Layer):
         shape (batch_size, in_rows, in_cols, channels)
         """
         ### BEGIN YOUR CODE ###
+        X_pad = self.cache["X_pad"]
+        out_rows = self.cache["out_rows"]
+        out_cols = self.cache["out_cols"]
+        stride = self.cache["p"]
+        k1, k2 = self.kernel_shape
 
-        # perform a backward pass
+        batch_size, in_rows_pad, in_cols_pad, channels = X_pad.shape
+
+        dX_pad = np.zeros_like(X_pad)
+
+        if self.mode == "max":
+            # For max pooling, we need to know where the max values came from
+            X_strided = self.cache["X_strided"]
+            
+            # Find argmax indices
+            argmax = np.argmax(X_strided.reshape(batch_size, out_rows, out_cols, -1, channels), axis=3)
+            argmax_i = argmax // k2
+            argmax_j = argmax % k2
+            
+            # Distribute gradients to max positions
+            for b in range(batch_size):
+                for h_out in range(out_rows):
+                    for w_out in range(out_cols):
+                        for c in range(channels):
+                            h_start = h_out * stride
+                            w_start = w_out * stride
+                            i = argmax_i[b, h_out, w_out, c]
+                            j = argmax_j[b, h_out, w_out, c]
+                            dX_pad[b, h_start+i, w_start+j, c] += dLdY[b, h_out, w_out, c]
+        
+        elif self.mode == "average":
+            # For average pooling, distribute gradients evenly
+            for b in range(batch_size):
+                for h_out in range(out_rows):
+                    for w_out in range(out_cols):
+                        h_start = h_out * stride
+                        w_start = w_out * stride
+                        # Add equal contribution to all positions in the window
+                        dX_pad[b, h_start:h_start+k1, w_start:w_start+k2, :] += (
+                            dLdY[b, h_out, w_out, :] / (k1 * k2)
+                        )
+        
+        # Remove padding to get the final gradient
+        gradX = dX_pad[:, self.pad[0]:in_rows_pad-self.pad[0], self.pad[1]:in_cols_pad-self.pad[1], :]
+    
 
         ### END YOUR CODE ###
 

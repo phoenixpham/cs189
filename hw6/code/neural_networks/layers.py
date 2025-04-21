@@ -430,36 +430,38 @@ class Conv2D(Layer):
         Z = self.cache["Z"] # pre-activation (batch_size, r1, r2, n_out)
         W = self.parameters["W"] # weights (k1, k2, n_in, n_out)
 
+        batch_size, d1, d2, n_in = X.shape
+        k1, k2, n_in, n_out = W.shape
+        r1, r2 = dLdY.shape[1], dLdY.shape[2]
+        
         dZ = self.activation.backward(Z, dLdY) # gradient before activation (batch_size, r1, r2, n_out)
 
-        X_pad = np.pad(X, ((0, 0), (self.pad[0], self.pad[0]), (self.pad[1], self.pad[1]), (0, 0)), mode="constant") # padding for input
-
-        batch_size, d1_pad, d2_pad, n_in = X_pad.shape
-        k1, k2, _, n_out = W.shape
-        r1, r2 = dZ.shape[1], dZ.shape[2]
-
+        # bias gradient
         db = np.einsum('bhwn->n', dZ).reshape(1, n_out)
 
-        # Gradient for weights
-        dW = np.zeros_like(W)
-        for i in range(k1):
-            for j in range(k2):
-                # Extract patches where weight W[i,j] was used
-                X_patch = X_pad[:, i:i+r1*self.stride:self.stride, 
-                                j:j+r2*self.stride:self.stride, :]  # (batch_size, r1, r2, n_in)
-                dW[i,j] = np.einsum('bhwn,bhwc->cn', dZ, X_patch)  # sum over batch and spatial
+        # weight gradient
+        X_pad = np.pad(X, ((0, 0), (self.pad[0], self.pad[0]), (self.pad[1], self.pad[1]), (0, 0)), mode="constant") # padding for input
+        X_windows = np.lib.stride_tricks.as_strided(
+            X_pad,
+            shape=(batch_size, r1, r2, k1, k2, n_in),
+            strides=(X_pad.strides[0], 
+                    X_pad.strides[1] * self.stride,
+                    X_pad.strides[2] * self.stride,
+                    X_pad.strides[1],
+                    X_pad.strides[2],
+                    X_pad.strides[3])
+        )
+        dW = np.einsum('bhwn,bhwijc->ijcn', dZ, X_windows)
         
+        # input gradient
         dX_pad = np.zeros_like(X_pad)
-        dZ_pad = np.pad(dZ, ((0,0), (k1-1, k1-1), (k2-1, k2-1), (0,0)), mode="constant")
+        for i in range(r1):
+            for j in range(r2):
+                for b in range(batch_size):
+                    dX_pad[b, i*self.stride:(i*self.stride + k1), j*self.stride:(j*self.stride + k2), :] += (dZ[b, i, j, :]*W).sum(axis=3)
         
-        for i in range(k1):
-            for j in range(k2):
-                dZ_window = dZ_pad[:, i:i+d1_pad, j:j+d2_pad, :]  # (batch_size, d1_pad, d2_pad, n_out)
-                dX_pad += np.einsum('bhwn,cn->bhwc', dZ_window, W[i,j])
-        
-        # Remove padding
-        dX = dX_pad[:, self.pad[0]:d1_pad-self.pad[0], 
-                    self.pad[1]:d2_pad-self.pad[1], :]
+        # remove padding
+        dX = dX_pad[:, self.pad[0]:-self.pad[0], self.pad[1]:-self.pad[1], :]
         
         self.gradients["W"] = dW
         self.gradients["b"] = db
@@ -539,19 +541,19 @@ class Pool2D(Layer):
         
         X_pad = np.pad(X, ((0, 0), (self.pad[0], self.pad[0]), (self.pad[1], self.pad[0]), (0, 0)), mode='constant')
         
-        X_strided = np.lib.stride_tricks.as_strided(X_pad,
+        X_windows = np.lib.stride_tricks.as_strided(X_pad,
             shape=(batch_size, out_rows, out_cols, k1, k2, channels),
             strides=(X_pad.strides[0], X_pad.strides[1] * self.stride, X_pad.strides[2] * self.stride, X_pad.strides[1], X_pad.strides[2],X_pad.strides[3])
         )
 
         # implement the forward pass
-        X_pool = self.pool_fn(X_strided, axis=(3, 4))
+        X_pool = self.pool_fn(X_windows, axis=(3, 4))
         
         # cache any values required for backprop
         self.cache["out_rows"] = out_rows
         self.cache["out_cols"] = out_cols
         self.cache["X_pad"] = X_pad
-        self.cache["X_strided"] = X_strided
+        self.cache["X_windows"] = X_windows
         self.cache["p"] = self.stride
         self.cache["pool_shape"] = X_pad.shape
 
@@ -586,10 +588,10 @@ class Pool2D(Layer):
 
         if self.mode == "max":
             # For max pooling, we need to know where the max values came from
-            X_strided = self.cache["X_strided"]
+            X_windows = self.cache["X_windows"]
             
             # Find argmax indices
-            argmax = np.argmax(X_strided.reshape(batch_size, out_rows, out_cols, -1, channels), axis=3)
+            argmax = np.argmax(X_windows.reshape(batch_size, out_rows, out_cols, -1, channels), axis=3)
             argmax_i = argmax // k2
             argmax_j = argmax % k2
             

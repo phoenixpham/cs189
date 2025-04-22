@@ -538,7 +538,7 @@ class Pool2D(Layer):
         out_rows = (in_rows - k1 + 2 * self.pad[0]) // self.stride + 1
         out_cols = (in_cols - k2 + 2 * self.pad[1]) // self.stride + 1
         
-        X_pad = np.pad(X, ((0, 0), (self.pad[0], self.pad[0]), (self.pad[1], self.pad[0]), (0, 0)), mode='constant')
+        X_pad = np.pad(X, ((0, 0), (self.pad[0], self.pad[0]), (self.pad[1], self.pad[1]), (0, 0)), mode='constant')
         
         X_windows = np.lib.stride_tricks.as_strided(X_pad,
             shape=(batch_size, out_rows, out_cols, k1, k2, channels),
@@ -557,7 +557,6 @@ class Pool2D(Layer):
         self.cache["out_rows"] = out_rows
         self.cache["out_cols"] = out_cols
         self.cache["X_pad"] = X_pad
-        self.cache["X_windows"] = X_windows
         self.cache["p"] = self.stride
         self.cache["pool_shape"] = X_pad.shape
 
@@ -591,24 +590,24 @@ class Pool2D(Layer):
         dX_pad = np.zeros_like(X_pad)
 
         if self.mode == "max":
-            # For max pooling, we need to know where the max values came from
-            X_windows = self.cache["X_windows"]
-            
-            # Find argmax indices
-            argmax = np.argmax(X_windows.reshape(batch_size, out_rows, out_cols, -1, channels), axis=3)
-            argmax_i = argmax // k2
-            argmax_j = argmax % k2
-            
-            # Distribute gradients to max positions
+            # For max pooling, manually compute where to send gradients
             for b in range(batch_size):
                 for h_out in range(out_rows):
                     for w_out in range(out_cols):
+                        h_start = h_out * stride
+                        w_start = w_out * stride
+                        
+                        # Get the window for this output position
+                        window = X_pad[b, h_start:h_start+k1, w_start:w_start+k2, :]
+                        
                         for c in range(channels):
-                            h_start = h_out * stride
-                            w_start = w_out * stride
-                            i = argmax_i[b, h_out, w_out, c]
-                            j = argmax_j[b, h_out, w_out, c]
-                            dX_pad[b, h_start+i, w_start+j, c] += dLdY[b, h_out, w_out, c]
+                            # Find where the max was in this window
+                            window_channel = window[:, :, c]
+                            # Make sure window is not empty
+                            if window_channel.size > 0:
+                                max_idx = np.unravel_index(np.argmax(window_channel), window_channel.shape)
+                                # Pass gradient only to max position
+                                dX_pad[b, h_start+max_idx[0], w_start+max_idx[1], c] += dLdY[b, h_out, w_out, c]
         
         elif self.mode == "average":
             # For average pooling, distribute gradients evenly
@@ -617,10 +616,15 @@ class Pool2D(Layer):
                     for w_out in range(out_cols):
                         h_start = h_out * stride
                         w_start = w_out * stride
+                        h_end = min(h_start+k1, in_rows_pad)
+                        w_end = min(w_start+k2, in_cols_pad)
+                        
                         # Add equal contribution to all positions in the window
-                        dX_pad[b, h_start:h_start+k1, w_start:w_start+k2, :] += (
-                            dLdY[b, h_out, w_out, :] / (k1 * k2)
-                        )
+                        window_size = (h_end - h_start) * (w_end - w_start)
+                        if window_size > 0:  # Ensure we don't divide by zero
+                            dX_pad[b, h_start:h_end, w_start:w_end, :] += (
+                                dLdY[b, h_out, w_out, :].reshape(1, 1, -1) / window_size
+                            )
         
         # Remove padding to get the final gradient
         gradX = dX_pad[:, self.pad[0]:in_rows_pad-self.pad[0], self.pad[1]:in_cols_pad-self.pad[1], :]
@@ -645,16 +649,4 @@ class Flatten(Layer):
         self.parameters = {}
         self.cache = {"in_dims": []}
 
-    def forward(self, X: np.ndarray, retain_derived: bool = True) -> np.ndarray:
-        self.cache["in_dims"] = X.shape
-
-        if self.keep_dim == -1:
-            return X.flatten().reshape(1, -1)
-
-        rs = (X.shape[0], -1) if self.keep_dim == "first" else (-1, X.shape[-1])
-        return X.reshape(*rs)
-
-    def backward(self, dLdY: np.ndarray) -> np.ndarray:
-        in_dims = self.cache["in_dims"]
-        gradX = dLdY.reshape(in_dims)
-        return gradX
+    def forward

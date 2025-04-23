@@ -550,19 +550,6 @@ class Pool2D(Layer):
                      X_pad.strides[3])
         )
 
-      
-        X_pad = np.pad(X, ((0, 0), (self.pad[0], self.pad[0]), (self.pad[1], self.pad[1]), (0, 0)), mode='constant')
-        
-        X_windows = np.lib.stride_tricks.as_strided(X_pad,
-            shape=(batch_size, out_rows, out_cols, k1, k2, channels),
-            strides=(X_pad.strides[0], 
-                     X_pad.strides[1] * self.stride, 
-                     X_pad.strides[2] * self.stride, 
-                     X_pad.strides[1], 
-                     X_pad.strides[2],
-                     X_pad.strides[3])
-        )
-
         # implement the forward pass
         X_pool = self.pool_fn(X_windows, axis=(3, 4))
         

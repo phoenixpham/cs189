@@ -538,6 +538,19 @@ class Pool2D(Layer):
         out_rows = (in_rows - k1 + 2 * self.pad[0]) // self.stride + 1
         out_cols = (in_cols - k2 + 2 * self.pad[1]) // self.stride + 1
         
+        X_pad = np.pad(X, ((0, 0), (self.pad[0], self.pad[0]), (self.pad[1], self.pad[0]), (0, 0)), mode='constant')
+        
+        X_windows = np.lib.stride_tricks.as_strided(X_pad,
+            shape=(batch_size, out_rows, out_cols, k1, k2, channels),
+            strides=(X_pad.strides[0], 
+                     X_pad.strides[1] * self.stride, 
+                     X_pad.strides[2] * self.stride, 
+                     X_pad.strides[1], 
+                     X_pad.strides[2],
+                     X_pad.strides[3])
+        )
+
+      
         X_pad = np.pad(X, ((0, 0), (self.pad[0], self.pad[0]), (self.pad[1], self.pad[1]), (0, 0)), mode='constant')
         
         X_windows = np.lib.stride_tricks.as_strided(X_pad,
@@ -649,4 +662,17 @@ class Flatten(Layer):
         self.parameters = {}
         self.cache = {"in_dims": []}
 
-    def forward
+    def forward(self, X: np.ndarray, retain_derived: bool = True) -> np.ndarray:
+        self.cache["in_dims"] = X.shape
+
+        if self.keep_dim == -1:
+            return X.flatten().reshape(1, -1)
+
+        rs = (X.shape[0], -1) if self.keep_dim == "first" else (-1, X.shape[-1])
+        return X.reshape(*rs)
+
+    def backward(self, dLdY: np.ndarray) -> np.ndarray:
+        in_dims = self.cache["in_dims"]
+        gradX = dLdY.reshape(in_dims)
+        return gradX
+    

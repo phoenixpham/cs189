@@ -590,46 +590,35 @@ class Pool2D(Layer):
         dX_pad = np.zeros_like(X_pad)
 
         if self.mode == "max":
-            # For max pooling, manually compute where to send gradients
+            # manually compute where to send gradients
             for b in range(batch_size):
                 for h_out in range(out_rows):
                     for w_out in range(out_cols):
-                        h_start = h_out * stride
-                        w_start = w_out * stride
-                        
-                        # Get the window for this output position
+                        h_start, w_start = h_out * stride, w_out * stride
+                    
                         window = X_pad[b, h_start:h_start+k1, w_start:w_start+k2, :]
-                        
                         for c in range(channels):
-                            # Find where the max was in this window
+                            # find where the max was in current window
                             window_channel = window[:, :, c]
-                            # Make sure window is not empty
-                            if window_channel.size > 0:
+                            if window_channel.size > 0: # make sure window is not empty
                                 max_idx = np.unravel_index(np.argmax(window_channel), window_channel.shape)
-                                # Pass gradient only to max position
+                                # pass gradient only to max position
                                 dX_pad[b, h_start+max_idx[0], w_start+max_idx[1], c] += dLdY[b, h_out, w_out, c]
-        
         elif self.mode == "average":
-            # For average pooling, distribute gradients evenly
+            # distribute gradients evenly
             for b in range(batch_size):
                 for h_out in range(out_rows):
                     for w_out in range(out_cols):
-                        h_start = h_out * stride
-                        w_start = w_out * stride
-                        h_end = min(h_start+k1, in_rows_pad)
-                        w_end = min(w_start+k2, in_cols_pad)
+                        h_start, w_start = h_out * stride, w_out * stride
+                        h_end, w_end = min(h_start+k1, in_rows_pad), min(w_start+k2, in_cols_pad)
                         
-                        # Add equal contribution to all positions in the window
+                        # add equal contribution to all positions in the window
                         window_size = (h_end - h_start) * (w_end - w_start)
-                        if window_size > 0:  # Ensure we don't divide by zero
-                            dX_pad[b, h_start:h_end, w_start:w_end, :] += (
-                                dLdY[b, h_out, w_out, :].reshape(1, 1, -1) / window_size
-                            )
+                        if window_size > 0:  # make sure we don't divide by zero
+                            dX_pad[b, h_start:h_end, w_start:w_end, :] += (dLdY[b, h_out, w_out, :].reshape(1, 1, -1) / window_size)
         
-        # Remove padding to get the final gradient
+        # Remove padding
         gradX = dX_pad[:, self.pad[0]:in_rows_pad-self.pad[0], self.pad[1]:in_cols_pad-self.pad[1], :]
-    
-
         ### END YOUR CODE ###
 
         return gradX

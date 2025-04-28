@@ -216,14 +216,13 @@ class FullyConnected(Layer):
 class BatchNorm1D(Layer):
     def __init__(
         self, 
-        n_in: int,
         weight_init: str = "xavier_uniform",
         eps: float = 1e-8,
         momentum: float = 0.9,
     ) -> None:
         super().__init__()
 
-        self.n_in = n_in
+        self.n_in = None
         
         # instantiate the weight initializer
         self.init_weights = initialize_weights(weight_init,)
@@ -453,14 +452,15 @@ class Conv2D(Layer):
         dW = np.einsum('bhwn,bhwijc->ijcn', dZ, X_windows)
         
         # input gradient
-        dX_pad = np.zeros_like(X_pad)
+        dX_pad = np.zeros((batch_size, in_rows + 2*self.pad[0], in_cols + 2*self.pad[1], in_channels))
         for i in range(out_rows):
             for j in range(out_cols):
-                for b in range(batch_size):
-                    dX_pad[b, i*self.stride:(i*self.stride + k1), j*self.stride:(j*self.stride + k2), :] += (dZ[b, i, j, :]*W).sum(axis=3)
-        
-        # remove padding
-        dX = dX_pad[:, self.pad[0]:-self.pad[0], self.pad[1]:-self.pad[1], :]
+                dX_pad[:, i*self.stride:(i*self.stride + k1), j*self.stride:(j*self.stride + k2), :] += np.einsum('bn,ijcn->bcij', dZ[:, i, j, :], W).transpose(0, 2, 3, 1) # correct to (batch_size, in_rows, in_cols, in_channels)
+        # remove padding if needed
+        if self.pad[0] > 0 or self.pad[1] > 0:
+            dX = dX_pad[:, self.pad[0]:-self.pad[0], self.pad[1]:-self.pad[1], :]
+        else:
+            dX = dX_pad
         
         self.gradients["W"] = dW
         self.gradients["b"] = db
@@ -538,7 +538,7 @@ class Pool2D(Layer):
         out_rows = (in_rows - k1 + 2 * self.pad[0]) // self.stride + 1
         out_cols = (in_cols - k2 + 2 * self.pad[1]) // self.stride + 1
         
-        X_pad = np.pad(X, ((0, 0), (self.pad[0], self.pad[0]), (self.pad[1], self.pad[0]), (0, 0)), mode='constant')
+        X_pad = np.pad(X, ((0, 0), (self.pad[0], self.pad[0]), (self.pad[1], self.pad[1]), (0, 0)), mode='constant')
         
         X_windows = np.lib.stride_tricks.as_strided(X_pad,
             shape=(batch_size, out_rows, out_cols, k1, k2, channels),

@@ -1,7 +1,7 @@
 # Phoenix Pham (3037848920)
 
 # How to reproduce the Homework 6 results:
-1. Ensure that your Python environment is configured properly with required dependencies.
+1. Ensure that your Python environment is configured properly with the required dependencies.
 2. For **5.2**, run the ```train_ffnn.py``` script to generate the training/validation loss and accuracy plots of the neural network model. Ensure that you change the hyperparameters accordingly in ```train_ffnn.py``` to get the specific results of the neural network with the given hyperparameters. The learning rate `lr` is located in the `optimizer_args` attribute dictionary, and the hidden layer size `n_out` is located in the `fc1` attribute dictionary.
 3. For **6.1**, run all cells of the ```einsum_examples.ipynb``` file on Jupyter notebook or Google Colab.
 4. For **7.1**, run all cells of the ```CS189_HW6_NN_MNIST.ipynb``` file on Google Colab. For faster training, switch your device on Google Colab to GPU. To use a GPU, go to `Runtime` -> `Change runtime type` -> select `GPU`.
